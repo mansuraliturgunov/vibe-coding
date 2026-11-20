@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Air Strings — Hand Tracking Music Engine</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Video elementi (orqa fonda, ko'rinmas) -->
+  <video id="webcam" playsinline autoplay muted></video>
+
+  <!-- Asosiy chizish canvasi -->
+  <canvas id="output-canvas"></canvas>
+
+  <!-- Boshqaruv va Ma'lumot paneli (HUD) -->
+  <header class="hud-top">
+    <div class="hud-brand">
+      <span class="pulse-indicator"></span>
+      <span class="app-title">AIR STRINGS</span>
+      <span class="badge">3-BOSQICH: FIZIKA</span>
+    </div>
+
+    <div class="hud-stats">
+      <div class="stat-item">
+        <span class="stat-label">FPS</span>
+        <span id="fps-counter" class="stat-value">--</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">QO‘LLAR</span>
+        <span id="hands-counter" class="stat-value">0 / 2</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">STATUS</span>
+        <span id="status-indicator" class="stat-value status-loading">Yuklanmoqda...</span>
+      </div>
+
+      <!-- Torlar sonini almashtirish -->
+      <div class="stat-item string-count-item">
+        <span class="stat-label">TORLAR SONI</span>
+        <div class="string-pills" id="string-pills">
+          <button class="pill-btn" data-count="4">4</button>
+          <button class="pill-btn" data-count="6">6</button>
+          <button class="pill-btn active" data-count="8">8</button>
+        </div>
+      </div>
+
+      <!-- Gamma tanlash (Pentatonic, Harp, Synth) -->
+      <div class="stat-item scale-selector-item">
+        <span class="stat-label">GAMMA</span>
+        <select id="scale-select" class="scale-dropdown">
+          <option value="pentatonic">Pentatonic</option>
+          <option value="harp">Harp (Arfa)</option>
+          <option value="synth">Synth (Cyber)</option>
+          <option value="spanish">Flamenco</option>
+          <option value="folk">D-Folk</option>
+        </select>
+      </div>
+
+      <button id="audio-start-btn" class="hud-audio-btn" title="Ovozni faollashtirish">
+        <span class="audio-icon">🎸</span>
+        <span id="audio-btn-text">Start Audio</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Notalar va Klaviatura ko'rsatkich paneli (Test nuqtasi 2) -->
+  <div class="hud-notes-strip" id="notes-strip">
+    <div class="note-slot" data-key="1"><span class="kbd">1</span><span class="note-name">E3</span></div>
+    <div class="note-slot" data-key="2"><span class="kbd">2</span><span class="note-name">G3</span></div>
+    <div class="note-slot" data-key="3"><span class="kbd">3</span><span class="note-name">A3</span></div>
+    <div class="note-slot" data-key="4"><span class="kbd">4</span><span class="note-name">B3</span></div>
+    <div class="note-slot" data-key="5"><span class="kbd">5</span><span class="note-name">D4</span></div>
+    <div class="note-slot" data-key="6"><span class="kbd">6</span><span class="note-name">E4</span></div>
+    <div class="note-slot" data-key="7"><span class="kbd">7</span><span class="note-name">G4</span></div>
+    <div class="note-slot" data-key="8"><span class="kbd">8</span><span class="note-name">A4</span></div>
+  </div>
+
+  <!-- Pastki maslahat paneli -->
+  <footer class="hud-bottom">
+    <div class="hud-hint">
+      <span class="hint-icon">🎸</span>
+      <span id="hint-text">1-qo‘l ko‘rsatkich barmog‘i bilan torlarni cherting (tezlikka qarab zarba kuchi o‘zgaradi). 2-qo‘l orqali taranglikni boshqaring.</span>
+    </div>
+  </footer>
+
+  <!-- Xatolik va holat darchasi -->
+  <div id="modal-container" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-icon" id="modal-icon">⚠️</div>
+      <h2 id="modal-title">Kamera xatoligi</h2>
+      <p id="modal-message">Iltimos, veb-kameraga ruxsat bering.</p>
+      <button id="modal-retry-btn" class="primary-btn">Qayta urinish</button>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
