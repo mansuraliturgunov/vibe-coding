@@ -15,7 +15,7 @@ Veb-kamera orqali qo‘l harakatlarini real vaqtda aniqlab, havoda virtual torla
 
 ## 🚀 Ishga tushirish
 
-3. Papkani teminalda ochib, npm ni ishga tushiring:
+3. Papkani terminalda ochib, npm ni ishga tushiring:
 ```bash
 npm run dev
 ```
