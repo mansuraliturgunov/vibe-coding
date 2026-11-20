@@ -165,6 +165,52 @@ export function setScale(scaleKey) {
 }
 
 /**
+ * Chastotani musiqiy notaga aylantirish (masalan 440 -> "A4")
+ */
+export function freqToNote(freq) {
+  try {
+    return Tone.Frequency(freq).toNote();
+  } catch (e) {
+    return "";
+  }
+}
+
+let activePluckIndex = 0;
+
+/**
+ * Erkin chastota (Hz) bo'yicha gitara torini chertish
+ * @param {number} frequency - Chastota (Hz, masalan 82..1000)
+ * @param {number} velocity - Chertish kuchi (0.1..1.0)
+ */
+export function triggerFrequency(frequency, velocity = 0.85) {
+  if (!isAudioReady()) return null;
+
+  const safeFreq = Math.max(55, Math.min(1800, frequency));
+  const safeVel = Math.max(0.15, Math.min(velocity, 1.0));
+
+  try {
+    // 8 ta PluckSynth orasidan navbatma-navbat tanlash (polifoniya uchun)
+    const pluck = stringPlucks[activePluckIndex % stringPlucks.length];
+    activePluckIndex++;
+
+    const now = Tone.now();
+
+    if (pluck) {
+      pluck.triggerAttack(safeFreq, now);
+    }
+
+    if (bodySynths) {
+      bodySynths.triggerAttackRelease(safeFreq, "4n", now, safeVel * 0.8);
+    }
+
+    return { frequency: safeFreq, velocity: safeVel, note: freqToNote(safeFreq) };
+  } catch (e) {
+    console.warn("Chastota chalishda xatolik:", e);
+    return null;
+  }
+}
+
+/**
  * Bitta gitara torini chertish (0..7)
  * @param {number} stringIndex - Tor indeksi (0 dan 7 gacha)
  * @param {number} velocity - Chertish kuchi (0.1 dan 1.0 gacha)

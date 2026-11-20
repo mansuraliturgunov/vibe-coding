@@ -1,487 +1,531 @@
-import { triggerString, getCurrentNotes } from "./audio.js";
+import { triggerFrequency, freqToNote } from "./audio.js";
 
 /**
- * Virtual Torlar va Fizika Moduli (Air Strings Physics Engine)
+ * 2D vektorlar va geometriya yordamchilari
  */
+function distance(p1, p2) {
+  return Math.hypot(p2.x - p1.x, p2.y - p1.y);
+}
 
+// 2 ta kesmaning kesishishini aniqlash (Line segment intersection)
+function getIntersection(a1, a2, b1, b2) {
+  const dX_a = a2.x - a1.x;
+  const dY_a = a2.y - a1.y;
+  const dX_b = b2.x - b1.x;
+  const dY_b = b2.y - b1.y;
+
+  const denom = -dX_b * dY_a + dX_a * dY_b;
+  if (Math.abs(denom) < 0.0001) return null; // Parallel
+
+  const s = (-dY_a * (a1.x - b1.x) + dX_a * (a1.y - b1.y)) / denom;
+  const t = ( dX_b * (a1.y - b1.y) - dY_b * (a1.x - b1.x)) / denom;
+
+  if (s >= 0 && s <= 1 && t >= 0 && t <= 1) {
+    return {
+      x: a1.x + t * dX_a,
+      y: a1.y + t * dY_a,
+      tTor: s // Tor bo'ylab 0..1 pozitsiyasi
+    };
+  }
+  return null;
+}
+
+// Nuqtadan kesmagacha bo'lgan eng qisqa masofa va proyeksiyasi
+function distToSegment(p, v, w) {
+  const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
+  if (l2 === 0) return { dist: distance(p, v), t: 0, proj: v };
+  let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  const proj = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) };
+  return { dist: distance(p, proj), t, proj };
+}
+
+/**
+ * Erkin Virtual Torlar Boshqaruvchisi (Freeform Interactive String Manager)
+ */
 export class StringManager {
   constructor() {
-    this.strings = [];
-    this.numStrings = 8;
-    this.maxActiveStrings = 8;
-    this.octaveShift = 0; // 2-qo'l orqali oktavani o'zgartirish
+    this.strings = []; // Sayt ochilganda bo'sh bo'ladi!
+    this.stringCounter = 0;
 
-    // Oldingi freym barmoq koordinatalari (tezlik va to'qnashuvni hisoblash uchun)
-    this.prevFingers = new Map(); // handIndex -> { x, y, time }
-
-    // Qo'l rollarini barqarorlashtirish (Role stabilization hysteresis)
-    this.lastPluckHandId = null;
-    this.lastControlHandId = null;
-
-    // 2-qo'l holati
-    this.controlHand = {
-      active: false,
-      isPinching: false,
-      pinchDistance: 0,
-      yPercent: 0.5,
-      tensionMultiplier: 1.0
+    // Chizish va Tahrirlash holatlari
+    this.drawingState = {
+      isDrawing: false,
+      startX: 0,
+      startY: 0,
+      currX: 0,
+      currY: 0
     };
 
-    // Callback funksiyalari (vizual effektlar va zarrachalar uchun)
+    this.editingEndpoint = null; // { stringId, end: 'p1' | 'p2' }
+    this.hoverEndpoint = null;   // { stringId, end: 'p1' | 'p2' }
+
+    // Oldingi freym barmoq koordinatalari
+    this.prevFingers = new Map();
+
+    // Callback
     this.onPluckCallback = null;
-
-    this.initStrings();
+    this.onStringsChangeCallback = null;
   }
 
   /**
-   * Faol torlar sonini o'zgartirish (4, 6 yoki 8)
+   * Barcha torlarni o'chirish (Tozalash)
    */
-  setActiveStringsCount(count) {
-    this.maxActiveStrings = Math.max(1, Math.min(count, 8));
-    this.resize(this.lastWidth || window.innerWidth, this.lastHeight || window.innerHeight);
-  }
-
-  /**
-   * Torlarni boshlang'ich sozlash
-   */
-  initStrings() {
+  clearStrings() {
     this.strings = [];
-    const notes = getCurrentNotes();
-
-    for (let i = 0; i < 8; i++) {
-      this.strings.push({
-        index: i,
-        note: notes[i] || `N${i + 1}`,
-        y: 0,              // Tinch holatdagi Y balandligi
-        x1: 0,             // Chap nuqta
-        x2: 0,             // O'ng nuqta
-        displacement: 0,   // Markaziy vertikal chetlanish
-        velocity: 0,       // Tebranish tezligi
-        tension: 0.22,     // Prujina tarangligi (Hooke's law k)
-        damping: 0.945,    // Tebranish so'nishi
-        isGrabbed: false,  // Barmoq bilan ushlab turilganmi
-        grabX: 0,
-        grabY: 0,
-        grabHandId: null,
-        lastPluckTime: 0,
-        vibrationPhase: 0,
-        glowIntensity: 0
-      });
+    this.stringCounter = 0;
+    this.cancelInteractions();
+    if (this.onStringsChangeCallback) {
+      this.onStringsChangeCallback(this.strings);
     }
   }
 
   /**
-   * Ekranning o'lchami o'zgarganda torlar koordinatalarini yangilash
+   * Oxirgi torni o'chirish (Undo)
    */
-  resize(width, height) {
-    this.lastWidth = width;
-    this.lastHeight = height;
-    const activeCount = this.maxActiveStrings;
-    // Ekranning 22% dan 82% gacha bo'lgan balandligida joylashadi
-    const topMargin = height * 0.22;
-    const bottomMargin = height * 0.82;
-    const availableHeight = bottomMargin - topMargin;
-    const spacing = availableHeight / Math.max(1, activeCount - 1);
-
-    const xLeft = width * 0.08;
-    const xRight = width * 0.92;
-
-    for (let i = 0; i < this.strings.length; i++) {
-      const s = this.strings[i];
-      if (i < activeCount) {
-        // Biroz gitara korpusiga o'xshash tabiiy qiyalik (diagonal/ergonomik burchak)
-        const slantOffset = (i - activeCount / 2) * 12;
-        s.y = topMargin + i * spacing;
-        s.x1 = xLeft;
-        s.x2 = xRight;
-        s.slant = slantOffset;
+  undoString() {
+    if (this.strings.length > 0) {
+      this.strings.pop();
+      this.cancelInteractions();
+      if (this.onStringsChangeCallback) {
+        this.onStringsChangeCallback(this.strings);
       }
     }
   }
 
-  /**
-   * Chertish hodisasiga obuna bo'lish (uchqunlar va zarralar uchun)
-   */
-  setOnPluck(callback) {
-    this.onPluckCallback = callback;
+  cancelInteractions() {
+    this.drawingState.isDrawing = false;
+    this.editingEndpoint = null;
+    this.hoverEndpoint = null;
+  }
+
+  setOnPluck(cb) {
+    this.onPluckCallback = cb;
+  }
+
+  setOnStringsChange(cb) {
+    this.onStringsChangeCallback = cb;
   }
 
   /**
-   * Qo'llar ma'lumotlarini qabul qilish va to'qnashuvlarni hisoblash
-   * @param {Array} handsLandmarks - Aniqlangan qo'llar landmarklari
-   * @param {Array} handednesses - Qo'l turlari (Left / Right)
+   * Tor uzunligidan fizik chastota (Hz) hisoblash (Mersenne qonuni)
+   */
+  calculateFrequency(length) {
+    const baseLen = 600;
+    const baseFreq = 120; // O'rtacha akustik gitara diapazoni
+    const clamped = Math.max(50, Math.min(1400, length));
+    const freq = Math.round((baseFreq * (baseLen / clamped)) * 10) / 10;
+    return freq;
+  }
+
+  /**
+   * Yangi tor obyektini yaratish
+   */
+  createString(p1, p2) {
+    this.stringCounter++;
+    const len = distance(p1, p2);
+    const freq = this.calculateFrequency(len);
+    const note = freqToNote(freq);
+
+    const newStr = {
+      id: this.stringCounter,
+      p1: { x: p1.x, y: p1.y },
+      p2: { x: p2.x, y: p2.y },
+      length: len,
+      frequency: freq,
+      noteName: note,
+      displacement: 0,  // Normal bo'yicha tebranish
+      velocity: 0,
+      tension: 0.22,
+      damping: 0.945,
+      isGrabbed: false,
+      grabT: 0.5,
+      grabOffset: 0,
+      glowTimer: 0
+    };
+
+    this.strings.push(newStr);
+    if (this.onStringsChangeCallback) {
+      this.onStringsChangeCallback(this.strings);
+    }
+    return newStr;
+  }
+
+  /**
+   * Tor o'lchamlarini yangilash (uchini surishda)
+   */
+  updateStringEndpoints(str, p1, p2) {
+    str.p1 = { x: p1.x, y: p1.y };
+    str.p2 = { x: p2.x, y: p2.y };
+    str.length = distance(p1, p2);
+    str.frequency = this.calculateFrequency(str.length);
+    str.noteName = freqToNote(str.frequency);
+  }
+
+  /**
+   * Resize vaqti
+   */
+  resize(width, height) {
+    // Dinamik koordinatalar erkin saqlanadi
+  }
+
+  /**
+   * Qo'llar harakatini qayta ishlash
    */
   updateHands(handsLandmarks, handednesses, screenW, screenH) {
     const now = performance.now();
 
     if (!handsLandmarks || handsLandmarks.length === 0) {
-      this.controlHand.active = false;
-      this.releaseAllGrabs();
+      // Qo'l yo'q bo'lsa, tugallanmagan chizishlarni yakunlash
+      if (this.drawingState.isDrawing) {
+        this.finishDrawing();
+      }
+      this.editingEndpoint = null;
+      this.hoverEndpoint = null;
       this.prevFingers.clear();
       return;
     }
 
-    // 1 ta yoki 2 ta qo'l mavjudligini tekshirish
-    let pluckHand = null;
-    let controlHand = null;
+    // Har bir aniqlangan qo'lni tahlil qilish
+    for (let hIdx = 0; hIdx < handsLandmarks.length; hIdx++) {
+      const lm = handsLandmarks[hIdx];
 
-    if (handsLandmarks.length === 1) {
-      pluckHand = { landmarks: handsLandmarks[0], id: "h0" };
-      this.controlHand.active = false;
-      this.lastPluckHandId = "h0";
-      this.lastControlHandId = null;
-    } else {
-      // 2 ta qo'l: MediaPipe handedness va X-koordinatalar asosida barqarorlashtirish (Stabilization)
-      const h0 = { landmarks: handsLandmarks[0], handedness: handednesses?.[0]?.[0]?.categoryName || "" };
-      const h1 = { landmarks: handsLandmarks[1], handedness: handednesses?.[1]?.[0]?.categoryName || "" };
+      // Oyna rejimida ekrandagi koordinatalar:
+      const pThumb = { x: (1 - lm[4].x) * screenW, y: lm[4].y * screenH };
+      const pIndex = { x: (1 - lm[8].x) * screenW, y: lm[8].y * screenH };
 
-      // Oyna rejimida ekrandagi X koordinatasi:
-      const h0_x = (1 - h0.landmarks[0].x) * screenW;
-      const h1_x = (1 - h1.landmarks[0].x) * screenW;
-
-      // Agar MediaPipe aniq Left va Right ni ajratgan bo'lsa (Mirror: Left=Chap/Control, Right=O'ng/Pluck)
-      if (h0.handedness && h1.handedness && h0.handedness !== h1.handedness) {
-        if (h0.handedness === "Right") {
-          pluckHand = { landmarks: h0.landmarks, id: "right_hand" };
-          controlHand = { landmarks: h1.landmarks, id: "left_hand" };
-        } else {
-          pluckHand = { landmarks: h1.landmarks, id: "right_hand" };
-          controlHand = { landmarks: h0.landmarks, id: "left_hand" };
-        }
-      } else {
-        // Handedness noaniq bo'lganda X bo'yicha barqaror histerezis bilan ajratish:
-        // Masofa juda yaqin bo'lsa (yaqinlashuvda sakrab ketmasligi uchun oldingi rolni ushlab turadi)
-        const dist = Math.abs(h0_x - h1_x);
-        if (dist < 80 && this.lastPluckHandId) {
-          // Oldingi rolni saqlaymiz
-          pluckHand = { landmarks: h0.landmarks, id: this.lastPluckHandId };
-          controlHand = { landmarks: h1.landmarks, id: this.lastControlHandId };
-        } else if (h0_x > h1_x) {
-          pluckHand = { landmarks: h0.landmarks, id: "hand_right" };
-          controlHand = { landmarks: h1.landmarks, id: "hand_left" };
-        } else {
-          pluckHand = { landmarks: h1.landmarks, id: "hand_right" };
-          controlHand = { landmarks: h0.landmarks, id: "hand_left" };
-        }
-      }
-
-      this.lastPluckHandId = pluckHand.id;
-      this.lastControlHandId = controlHand.id;
-    }
-
-    // --- 2-QO'L: Nazorat mantiqi (Taranglik, Chimchilash, Torlar soni) ---
-    if (controlHand) {
-      this.processControlHand(controlHand, screenW, screenH);
-    } else {
-      this.controlHand.active = false;
-      this.controlHand.tensionMultiplier = 1.0;
-    }
-
-    // --- 1-QO'L: Chertish mantiqi (Plucking & String Deformation) ---
-    if (pluckHand) {
-      this.processPluckHand(pluckHand, screenW, screenH, now);
-    }
-  }
-
-  /**
-   * 2-qo'lni qayta ishlash: Chimchilash va Y balandligi
-   */
-  processControlHand(hand, screenW, screenH) {
-    const lm = hand.landmarks;
-    this.controlHand.active = true;
-
-    // Bosh barmoq (4) va Ko'rsatkich barmoq (8)
-    const pThumb = { x: (1 - lm[4].x) * screenW, y: lm[4].y * screenH };
-    const pIndex = { x: (1 - lm[8].x) * screenW, y: lm[8].y * screenH };
-    const pWrist = { x: (1 - lm[0].x) * screenW, y: lm[0].y * screenH };
-
-    // Chimchilash masofasi (Pinch distance)
-    const pinchDist = Math.hypot(pThumb.x - pIndex.x, pThumb.y - pIndex.y);
-    this.controlHand.pinchDistance = pinchDist;
-    this.controlHand.isPinching = pinchDist < 45; // 45px dan yaqin bo'lsa chimchilash
-
-    // Y koordinatasi bo'yicha balandlik (0 = eng tepa, 1 = eng past)
-    const yNorm = Math.max(0, Math.min(1, pIndex.y / screenH));
-    this.controlHand.yPercent = yNorm;
-
-    // Y koordinatasi torlar tarangligini va akustik rezonansini boshqaradi
-    // Qo'l yuqorida bo'lsa torlar tarangroq va yorqinroq
-    this.controlHand.tensionMultiplier = 0.8 + (1 - yNorm) * 0.8;
-
-    // Chimchilaganda torlar sonini almashtirish (4 ta yoki 8 ta tor)
-    if (this.controlHand.isPinching) {
-      this.controlHand.pinchPoint = {
+      const pinchDist = distance(pThumb, pIndex);
+      const isPinching = pinchDist < 38; // 38px dan yaqin bo'lsa chimchilash
+      const pinchCenter = {
         x: (pThumb.x + pIndex.x) / 2,
         y: (pThumb.y + pIndex.y) / 2
       };
-    } else {
-      this.controlHand.pinchPoint = null;
-    }
-  }
 
-  /**
-   * 1-qo'lni qayta ishlash: Ko'rsatkich barmoq uchi (landmark 8) orqali torlarni chertish
-   */
-  processPluckHand(hand, screenW, screenH, now) {
-    const lm = hand.landmarks;
-    // Asosiy chertuvchi nuqta: ko'rsatkich barmoq uchi (8)
-    const tip = {
-      x: (1 - lm[8].x) * screenW,
-      y: lm[8].y * screenH
-    };
+      const handKey = `hand_${hIdx}`;
+      const prevHand = this.prevFingers.get(handKey);
 
-    // Qo'shimcha chertuvchi nuqta: bosh barmoq uchi (4)
-    const thumbTip = {
-      x: (1 - lm[4].x) * screenW,
-      y: lm[4].y * screenH
-    };
+      // --- 1. CHIMCHILASH: Chizish yoki Uchini tahrirlash ---
+      if (isPinching) {
+        this.handlePinch(pinchCenter);
+      } else {
+        // Chimchilash ochildi (Release)
+        if (this.drawingState.isDrawing) {
+          this.finishDrawing();
+        }
+        if (this.editingEndpoint) {
+          this.editingEndpoint = null;
+        }
 
-    const fingerKeys = [
-      { id: `${hand.id}_index`, pos: tip, radius: 18 },
-      { id: `${hand.id}_thumb`, pos: thumbTip, radius: 16 }
-    ];
+        // Hover holatini tekshirish (uchlarga yaqinlashganda)
+        this.checkHoverEndpoint(pIndex);
 
-    for (const finger of fingerKeys) {
-      const prev = this.prevFingers.get(finger.id);
-      const currPos = finger.pos;
-
-      if (prev) {
-        // Har bir faol tor bilan to'qnashuvni tekshirish
-        for (let i = 0; i < this.maxActiveStrings; i++) {
-          const str = this.strings[i];
-
-          // Barmoq torning gorizontal chegarasi ichidami?
-          if (currPos.x >= str.x1 && currPos.x <= str.x2) {
-            this.checkStringInteraction(str, prev, currPos, finger.id, now);
-          }
+        // --- 2. CHERTISH: Ko'rsatkich barmoq bilan torlarni kesib o'tish ---
+        if (prevHand && !prevHand.wasPinching) {
+          this.checkPluck(prevHand.pIndex, pIndex, now);
         }
       }
 
-      this.prevFingers.set(finger.id, { x: currPos.x, y: currPos.y, time: now });
-    }
-  }
-
-  /**
-   * Bitta tor bilan barmoq o'rtasidagi fizika va deformatsiya
-   */
-  checkStringInteraction(str, prevPos, currPos, fingerId, now) {
-    const stringRestY = str.y;
-    const maxDeflection = 38; // Maksimal egilish chegarasi (shundan keyin uziladi)
-
-    // 1. Agar tor allaqachon shu barmoq tomonidan egilayotgan bo'lsa (Grabbed)
-    if (str.isGrabbed && str.grabHandId === fingerId) {
-      const deltaY = currPos.y - stringRestY;
-      str.grabX = currPos.x;
-      str.grabY = currPos.y;
-      str.displacement = deltaY;
-
-      // Egilish chegaradan oshdimi? (Uzilish / Release)
-      if (Math.abs(deltaY) > maxDeflection) {
-        this.pluckString(str, currPos.x, currPos.y, prevPos, currPos, now);
-      }
-      return;
-    }
-
-    // 2. Barmoq tor chizig'ini kesib o'tdimi? (Line crossing detection)
-    const crossedDown = prevPos.y < stringRestY && currPos.y >= stringRestY;
-    const crossedUp = prevPos.y > stringRestY && currPos.y <= stringRestY;
-
-    if (crossedDown || crossedUp) {
-      const speed = Math.hypot(currPos.x - prevPos.x, currPos.y - prevPos.y);
-
-      // Agar tezlik yuqori bo'lsa (tez chertish / fast swipe), darhol uziladi
-      if (speed > 14) {
-        this.pluckString(str, currPos.x, stringRestY, prevPos, currPos, now);
-      } else {
-        // Sekin harakatda tor barmoqqa "yopishadi" va egiladi
-        str.isGrabbed = true;
-        str.grabHandId = fingerId;
-        str.grabX = currPos.x;
-        str.grabY = currPos.y;
-        str.displacement = currPos.y - stringRestY;
-      }
-      return;
-    }
-
-    // 3. Barmoq torga juda yaqin turibdimi? (Yaqinlashish / Proximity grab)
-    const distY = Math.abs(currPos.y - stringRestY);
-    if (!str.isGrabbed && distY < 12) {
-      str.isGrabbed = true;
-      str.grabHandId = fingerId;
-      str.grabX = currPos.x;
-      str.grabY = currPos.y;
-      str.displacement = currPos.y - stringRestY;
-    }
-  }
-
-  /**
-   * Torni "uzish" va jaranglatish (Pluck String)
-   */
-  pluckString(str, hitX, hitY, prevPos, currPos, now) {
-    // Tebranishni to'xtatish va "uzish"
-    str.isGrabbed = false;
-    str.grabHandId = null;
-
-    // Barmoq tezligi bo'yicha zarba kuchi (velocity)
-    const speed = Math.hypot(currPos.x - prevPos.x, currPos.y - prevPos.y);
-    const audioVelocity = Math.max(0.25, Math.min(1.0, speed / 25));
-
-    // Boshlang'ich tebranish turtkisi (Impulse)
-    const direction = str.displacement !== 0 ? -Math.sign(str.displacement) : (currPos.y > prevPos.y ? 1 : -1);
-    str.velocity = direction * (18 + Math.min(speed * 1.5, 40));
-    str.lastPluckTime = now;
-    str.glowIntensity = 1.0;
-
-    // Audio yangratish
-    triggerString(str.index, audioVelocity);
-
-    // Vizual uchqun va zarrachalar hodisasi
-    if (this.onPluckCallback) {
-      this.onPluckCallback({
-        stringIndex: str.index,
-        x: hitX,
-        y: hitY,
-        velocity: audioVelocity,
-        note: str.note
+      this.prevFingers.set(handKey, {
+        pIndex,
+        pThumb,
+        pinchCenter,
+        wasPinching: isPinching,
+        time: now
       });
     }
   }
 
   /**
-   * Barcha tutqichlarni bo'shatish
+   * Chimchilash harakati (Chizish yoki uchini surish)
    */
-  releaseAllGrabs() {
+  handlePinch(point) {
+    // 1. Agar allaqachon biror uchini surayotgan bo'lsak
+    if (this.editingEndpoint) {
+      const { stringId, end } = this.editingEndpoint;
+      const str = this.strings.find(s => s.id === stringId);
+      if (str) {
+        if (end === "p1") {
+          this.updateStringEndpoints(str, point, str.p2);
+        } else {
+          this.updateStringEndpoints(str, str.p1, point);
+        }
+      }
+      return;
+    }
+
+    // 2. Agar yangi tor chizilayotgan bo'lsa
+    if (this.drawingState.isDrawing) {
+      this.drawingState.currX = point.x;
+      this.drawingState.currY = point.y;
+      return;
+    }
+
+    // 3. Yangi chimchilash boshlandi:
+    // Avval yaqin orada torning uchi bormi tekshiramiz (Endpoint Drag)
+    const nearest = this.findNearestEndpoint(point, 32);
+    if (nearest) {
+      this.editingEndpoint = nearest;
+      return;
+    }
+
+    // Bo'sh joyda chimchilansa -> Yangi tor chizish boshlanadi
+    this.drawingState.isDrawing = true;
+    this.drawingState.startX = point.x;
+    this.drawingState.startY = point.y;
+    this.drawingState.currX = point.x;
+    this.drawingState.currY = point.y;
+  }
+
+  /**
+   * Chizishni yakunlash (Tor hosil qilish)
+   */
+  finishDrawing() {
+    if (!this.drawingState.isDrawing) return;
+
+    const p1 = { x: this.drawingState.startX, y: this.drawingState.startY };
+    const p2 = { x: this.drawingState.currX, y: this.drawingState.currY };
+    const len = distance(p1, p2);
+
+    // Minimal uzunlik 45 piksel bo'lsa tor yaratiladi
+    if (len >= 45) {
+      this.createString(p1, p2);
+    }
+
+    this.drawingState.isDrawing = false;
+  }
+
+  /**
+   * Yaqin atrofdagi tor uchini topish
+   */
+  findNearestEndpoint(p, threshold = 28) {
+    let nearest = null;
+    let minDist = threshold;
+
     for (const str of this.strings) {
-      if (str.isGrabbed) {
-        str.isGrabbed = false;
-        str.grabHandId = null;
-        str.velocity = -Math.sign(str.displacement) * 15;
+      const d1 = distance(p, str.p1);
+      if (d1 < minDist) {
+        minDist = d1;
+        nearest = { stringId: str.id, end: "p1" };
+      }
+      const d2 = distance(p, str.p2);
+      if (d2 < minDist) {
+        minDist = d2;
+        nearest = { stringId: str.id, end: "p2" };
+      }
+    }
+    return nearest;
+  }
+
+  checkHoverEndpoint(p) {
+    this.hoverEndpoint = this.findNearestEndpoint(p, 28);
+  }
+
+  /**
+   * Torlarni barmoq bilan chertish (To'qnashuv va Fizika)
+   */
+  checkPluck(prevTip, currTip, now) {
+    const fingerSpeed = distance(prevTip, currTip);
+
+    for (const str of this.strings) {
+      // 1. Kesma-kesma to'qnashuvi
+      const hit = getIntersection(prevTip, currTip, str.p1, str.p2);
+
+      if (hit) {
+        // Tor chertildi!
+        this.pluckString(str, hit.x, hit.y, hit.tTor, fingerSpeed, now);
+        continue;
+      }
+
+      // 2. Barmoq juda yaqin o'tganda (proximity)
+      const { dist, t } = distToSegment(currTip, str.p1, str.p2);
+      if (dist < 14 && t > 0.05 && t < 0.95 && fingerSpeed > 5) {
+        const prevDist = distToSegment(prevTip, str.p1, str.p2).dist;
+        if (prevDist >= 14) {
+          this.pluckString(str, currTip.x, currTip.y, t, fingerSpeed, now);
+        }
       }
     }
   }
 
   /**
-   * Fizika qonuniyatlarini har freymda yangilash (Damped Harmonic Motion)
+   * Torni yangratish va tebratish
+   */
+  pluckString(str, hitX, hitY, t, speed, now) {
+    // Tebranish zarbasi
+    const velocity = Math.max(0.25, Math.min(1.0, speed / 22));
+    str.velocity = 18 * velocity;
+    str.glowTimer = 1.0;
+
+    // Uzunligiga mos ovozni chiqarish
+    triggerFrequency(str.frequency, velocity);
+
+    if (this.onPluckCallback) {
+      this.onPluckCallback({
+        stringId: str.id,
+        frequency: str.frequency,
+        note: str.noteName,
+        velocity
+      });
+    }
+  }
+
+  /**
+   * Har freymda tebranish fizikasini yangilash (Harmonic Oscillator)
    */
   updatePhysics() {
-    const tensionMult = this.controlHand.tensionMultiplier || 1.0;
-
     for (const str of this.strings) {
-      if (str.isGrabbed) {
-        // Barmoq ushlab turganda erkin tebranmaydi
-        continue;
-      }
-
       if (Math.abs(str.displacement) > 0.05 || Math.abs(str.velocity) > 0.05) {
-        // Guk qonuni (Hooke's law) + So'nish (Damping)
-        const effectiveTension = str.tension * tensionMult;
-        const springForce = -effectiveTension * str.displacement;
+        const springForce = -str.tension * str.displacement;
         str.velocity += springForce;
         str.velocity *= str.damping;
         str.displacement += str.velocity;
-
-        // Tebranish fazasi (To'lqin vizualizatsiyasi uchun)
-        str.vibrationPhase += 0.4;
       } else {
         str.displacement = 0;
         str.velocity = 0;
       }
 
-      // Yorug'lik (glow) asta-sekin so'nishi
-      if (str.glowIntensity > 0) {
-        str.glowIntensity = Math.max(0, str.glowIntensity - 0.025);
+      if (str.glowTimer > 0) {
+        str.glowTimer = Math.max(0, str.glowTimer - 0.03);
       }
     }
   }
 
   /**
-   * Ekranga torlarni va ularning deformatsiyasini chizish
-   * @param {CanvasRenderingContext2D} ctx - Canvas konteksti
+   * Ekranga barcha torlarni va chizish/tahrirlashni chizish (Yengil va toza 60 FPS)
    */
   draw(ctx) {
-    const notes = getCurrentNotes();
-
-    for (let i = 0; i < this.maxActiveStrings; i++) {
-      const str = this.strings[i];
-      str.note = notes[i] || str.note;
-
-      const { x1, x2, y, displacement, isGrabbed, grabX, grabY, glowIntensity } = str;
-
-      ctx.save();
-
-      // Torning rangi (Yengil va toza ranglar, shadowBlur siz)
-      let strokeColor = "rgba(56, 189, 248, 0.4)";
-      let lineWidth = 2;
-
-      if (isGrabbed) {
-        strokeColor = "#f59e0b"; // Egilayotganda sariq
-        lineWidth = 3;
-      } else if (glowIntensity > 0.05) {
-        strokeColor = "#00ffcc"; // Yangi chertilganda och yashil/moviy
-        lineWidth = 2.5;
-      }
-
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = lineWidth;
-      ctx.lineCap = "round";
-
-      ctx.beginPath();
-      ctx.moveTo(x1, y);
-
-      if (isGrabbed) {
-        // Barmoqqa ergashib egiluvchi bitta Bezier egri chizig'i
-        ctx.quadraticCurveTo(grabX, grabY, x2, y);
-      } else if (Math.abs(displacement) > 0.1) {
-        // 3-bosqichdagi yengil to'lqinlanuvchi Bezier tebranishi
-        const midX = (x1 + x2) / 2;
-        const controlY = y + displacement;
-        ctx.quadraticCurveTo(midX, controlY, x2, y);
-      } else {
-        // Tinch holatdagi to'g'ri chiziq
-        ctx.lineTo(x2, y);
-      }
-
-      ctx.stroke();
-
-      // Torning chap tomonidagi Nota belgisi
-      ctx.font = "600 12px 'JetBrains Mono', monospace";
-      ctx.fillStyle = isGrabbed ? "#f59e0b" : glowIntensity > 0.1 ? "#00ffcc" : "#94a3b8";
-      ctx.fillText(`[${i + 1}] ${str.note}`, x1 - 58, y + 4);
-
-      // Torning ikki chekkasidagi nuqtalar
-      ctx.beginPath();
-      ctx.arc(x1, y, 2.5, 0, Math.PI * 2);
-      ctx.arc(x2, y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#38bdf8";
-      ctx.fill();
-
-      ctx.restore();
+    // 1. Chizilgan mavjud torlarni chizish
+    for (const str of this.strings) {
+      this.drawString(ctx, str);
     }
 
-    // 2-Qo'l vizual indikatori (Control hand badge)
-    if (this.controlHand.active) {
-      this.drawControlHandIndicator(ctx);
+    // 2. Ayni paytda chizilayotgan vaqtinchalik tor (Drawing preview)
+    if (this.drawingState.isDrawing) {
+      this.drawTempString(ctx);
     }
   }
 
   /**
-   * 2-qo'l (Nazorat qo'li) ustiga chiroyli holat indikatorini chizish
+   * Bitta torni chizish
    */
-  drawControlHandIndicator(ctx) {
-    const { isPinching, pinchPoint } = this.controlHand;
+  drawString(ctx, str) {
+    const { p1, p2, displacement, glowTimer, id, frequency, noteName } = str;
 
-    if (isPinching && pinchPoint) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(pinchPoint.x, pinchPoint.y, 20, 0, Math.PI * 2);
-      ctx.strokeStyle = "#a855f7";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+    ctx.save();
 
-      ctx.font = "700 11px 'JetBrains Mono', monospace";
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText("CHIMCHILASH: FAOL", pinchPoint.x - 55, pinchPoint.y - 26);
-      ctx.restore();
+    // Torning yo'nalishi va normal vektori (Egilish uchun)
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = str.length || 1;
+    // Normal vektor (perpendikulyar)
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    // Tor rangi
+    let strokeColor = "rgba(56, 189, 248, 0.55)";
+    let lineWidth = 2.2;
+
+    if (glowTimer > 0.05) {
+      strokeColor = "#00ffcc"; // Yangi chertilganda och yashil
+      lineWidth = 3.0;
     }
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = "round";
+
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+
+    if (Math.abs(displacement) > 0.1) {
+      // Tebranayotgan Bezier egri chizig'i
+      const midX = (p1.x + p2.x) / 2 + nx * displacement;
+      const midY = (p1.y + p2.y) / 2 + ny * displacement;
+      ctx.quadraticCurveTo(midX, midY, p2.x, p2.y);
+    } else {
+      ctx.lineTo(p2.x, p2.y);
+    }
+    ctx.stroke();
+
+    // Ikki uchidagi ushlash nuqtalari
+    this.drawEndpoint(ctx, p1, str.id, "p1");
+    this.drawEndpoint(ctx, p2, str.id, "p2");
+
+    // Tor o'rtasida yoki yonida uning raqami va chastotasi (#1 146Hz D3)
+    const labelX = (p1.x + p2.x) / 2 + nx * 14;
+    const labelY = (p1.y + p2.y) / 2 + ny * 14;
+
+    ctx.font = "600 11px 'JetBrains Mono', monospace";
+    ctx.fillStyle = glowTimer > 0.1 ? "#00ffcc" : "#cbd5e1";
+    ctx.fillText(`#${id} ${Math.round(frequency)}Hz (${noteName})`, labelX, labelY);
+
+    ctx.restore();
+  }
+
+  /**
+   * Tor uchidagi ushlash nuqtasi
+   */
+  drawEndpoint(ctx, p, stringId, end) {
+    const isHover = this.hoverEndpoint && this.hoverEndpoint.stringId === stringId && this.hoverEndpoint.end === end;
+    const isEditing = this.editingEndpoint && this.editingEndpoint.stringId === stringId && this.editingEndpoint.end === end;
+
+    ctx.beginPath();
+    const radius = isEditing ? 6.5 : isHover ? 5.5 : 3.5;
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+
+    if (isEditing) {
+      ctx.fillStyle = "#f59e0b"; // Surilayotganda to'q sariq
+    } else if (isHover) {
+      ctx.fillStyle = "#38bdf8"; // Barmoq yaqinlashganda och moviy
+    } else {
+      ctx.fillStyle = "rgba(56, 189, 248, 0.7)";
+    }
+    ctx.fill();
+
+    // Ichki oq yadro
+    if (isHover || isEditing) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    }
+  }
+
+  /**
+   * Chizilayotgan vaqtinchalik torni chizish
+   */
+  drawTempString(ctx) {
+    const { startX, startY, currX, currY } = this.drawingState;
+    const len = distance({ x: startX, y: startY }, { x: currX, y: currY });
+    const freq = this.calculateFrequency(len);
+    const note = freqToNote(freq);
+
+    ctx.save();
+    // Chizilayotgan tor: sariq chiziq
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 2.2;
+    ctx.setLineDash([6, 4]);
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(currX, currY);
+    ctx.stroke();
+
+    // Uchlaridagi nuqtalar
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(startX, startY, 4, 0, Math.PI * 2);
+    ctx.arc(currX, currY, 5, 0, Math.PI * 2);
+    ctx.fillStyle = "#fbbf24";
+    ctx.fill();
+
+    // Real vaqtli chastota va uzunlik ko'rsatkichi
+    const midX = (startX + currX) / 2 + 10;
+    const midY = (startY + currY) / 2 - 10;
+    ctx.font = "700 12px 'JetBrains Mono', monospace";
+    ctx.fillStyle = "#fbbf24";
+    ctx.fillText(`+ Yangi tor: ${Math.round(freq)}Hz (${note}) [${Math.round(len)}px]`, midX, midY);
+
+    ctx.restore();
   }
 }

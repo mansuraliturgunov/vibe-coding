@@ -45,11 +45,10 @@ http://localhost:5173
 
 ---
 
-## ✨ 4-Bosqichda amalga oshirilgan ishlar (Vizual effektlar va UI):
-- **particles.js moduli:** Tor chertilgan aynan shu nuqtada kengayib so‘nuvchi neon zarba to‘lqini (*Shockwave ring*) va gravitatsiya/havo qarshiligiga ega 20–40 ta yorqin neon uchqun zarrachalari (*Sparks*) otilib chiqishi yaratildi (`globalCompositeOperation = 'lighter'`).
-- **Sinusoidal tebranish animatsiyasi:** Tor chertilgandan so‘ng 24 ta segmentdan iborat ko‘p to‘lqinli garmonik sinusoida to‘lqini bo‘yicha tebranadi (*Fundamental wave + 1st harmonic*).
-- **HUD boshqaruv paneli:**
-  - Torlar sonini almashtirish pill-tugmalari: **[4]**, **[6]**, **[8]** tor.
-  - Gamma tanlash: **Pentatonic**, **Harp**, **Synth**, **Flamenco**, **D-Folk**.
-- **Hand Tracking barqarorlashtirish (Stabilization):**
-  - Qo‘llar bir-biriga yaqinlashganda sakrab ketmasligi uchun histerezis va **EMA (Exponential Moving Average)** silliqlash filtri ulandi (titrashlar butunlay yo‘qotildi).
+## 🎸 Erkin Torlar (Freeform Multi-Angle Interactive Strings):
+- **Bo‘sh start va tozalash:** Sayt ochilganda ekran bo‘sh bo‘ladi. Yuqori paneldagi `🗑 Tozalash` va `↩ Bekor qilish` tugmalari orqali torlarni boshqarish mumkin.
+- **Istalgan burchakda tor chizish:** Bosh barmoq va ko‘rsatkich barmoqni chimchilab (pinch) ekranning istalgan nuqtasidan istalgan burchakda (gorizontal, vertikal, diagonal) tor torting.
+- **Uzunlikka mos akustik chastota (Mersenne fizikasi):** Tor uzun bo‘lsa yo‘g‘on, qisqa bo‘lsa ingichka jaranglaydi. Chizayotgan paytda ham chastota real vaqtda ko‘rinib turadi (`#1 146Hz D3`).
+- **Uchlaridan ushlab o‘zgartirish:** Torning ikki uchidagi nuqtalarni chimchilab tortish orqali tor uzunligi va burchagini xohlagancha o‘zgartirish mumkin.
+- **Chertish:** Ochiq ko‘rsatkich barmoq bilan torlarni kesib o‘tganingizda torlar egilib, uzilib o‘z uzunligiga mos gitara sadosini beradi.
+- **Yengil va sovuq:** Hech qanday og‘ir neon/particle yuklamalarisiz toza 60 FPS! (Sichqoncha bilan ham to‘liq boshqarish mumkin).

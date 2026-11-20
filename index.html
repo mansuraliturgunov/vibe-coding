@@ -21,7 +21,7 @@
     <div class="hud-brand">
       <span class="pulse-indicator"></span>
       <span class="app-title">AIR STRINGS</span>
-      <span class="badge">3-BOSQICH: FIZIKA</span>
+      <span class="badge">ERKIN CHIZISH</span>
     </div>
 
     <div class="hud-stats">
@@ -37,27 +37,15 @@
         <span class="stat-label">STATUS</span>
         <span id="status-indicator" class="stat-value status-loading">Yuklanmoqda...</span>
       </div>
-
-      <!-- Torlar sonini almashtirish -->
-      <div class="stat-item string-count-item">
-        <span class="stat-label">TORLAR SONI</span>
-        <div class="string-pills" id="string-pills">
-          <button class="pill-btn" data-count="4">4</button>
-          <button class="pill-btn" data-count="6">6</button>
-          <button class="pill-btn active" data-count="8">8</button>
-        </div>
+      <div class="stat-item">
+        <span class="stat-label">TORLAR</span>
+        <span id="strings-counter" class="stat-value">0 ta</span>
       </div>
 
-      <!-- Gamma tanlash (Pentatonic, Harp, Synth) -->
-      <div class="stat-item scale-selector-item">
-        <span class="stat-label">GAMMA</span>
-        <select id="scale-select" class="scale-dropdown">
-          <option value="pentatonic">Pentatonic</option>
-          <option value="harp">Harp (Arfa)</option>
-          <option value="synth">Synth (Cyber)</option>
-          <option value="spanish">Flamenco</option>
-          <option value="folk">D-Folk</option>
-        </select>
+      <!-- Boshqaruv tugmalari (Undo va Tozalash) -->
+      <div class="stat-item action-btns-item">
+        <button id="btn-undo" class="pill-btn action-btn" title="Oxirgi torni o‘chirish">↩ Bekor qilish</button>
+        <button id="btn-clear" class="pill-btn action-btn danger-btn" title="Barcha torlarni o‘chirish">🗑 Tozalash</button>
       </div>
 
       <button id="audio-start-btn" class="hud-audio-btn" title="Ovozni faollashtirish">
@@ -82,8 +70,8 @@
   <!-- Pastki maslahat paneli -->
   <footer class="hud-bottom">
     <div class="hud-hint">
-      <span class="hint-icon">🎸</span>
-      <span id="hint-text">1-qo‘l ko‘rsatkich barmog‘i bilan torlarni cherting (tezlikka qarab zarba kuchi o‘zgaradi). 2-qo‘l orqali taranglikni boshqaring.</span>
+      <span class="hint-icon">✍️</span>
+      <span id="hint-text">Bosh va ko‘rsatkich barmoqni chimchilab (pinch) istalgan burchakda tor torting! Tor uchidan tortib o‘zgartiring, barmog‘ingiz bilan cherting.</span>
     </div>
   </footer>
 

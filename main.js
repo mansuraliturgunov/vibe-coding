@@ -13,6 +13,9 @@ const ctx = canvas.getContext("2d");
 const fpsCounter = document.getElementById("fps-counter");
 const handsCounter = document.getElementById("hands-counter");
 const statusIndicator = document.getElementById("status-indicator");
+const stringsCounter = document.getElementById("strings-counter");
+const btnUndo = document.getElementById("btn-undo");
+const btnClear = document.getElementById("btn-clear");
 
 const audioStartBtn = document.getElementById("audio-start-btn");
 const audioBtnText = document.getElementById("audio-btn-text");
@@ -407,36 +410,71 @@ if (scaleSelect) {
   });
 }
 
-// Tor chertilganda hodisani qabul qilish
-stringManager.setOnPluck(({ stringIndex }) => {
-  highlightNoteSlot(stringIndex);
+// Torlar ro'yxati o'zgarganda HUD ko'rsatkichini yangilash
+stringManager.setOnStringsChange((strings) => {
+  if (stringsCounter) {
+    stringsCounter.textContent = `${strings.length} ta`;
+  }
+});
 
+// Tozalash va Undo tugmalari hodisalari
+if (btnUndo) {
+  btnUndo.addEventListener("click", () => {
+    stringManager.undoString();
+  });
+}
+
+if (btnClear) {
+  btnClear.addEventListener("click", () => {
+    stringManager.clearStrings();
+  });
+}
+
+// Tor chertilganda hodisani qabul qilish
+stringManager.setOnPluck(({ frequency, note }) => {
   // Agar audio hali yoqilmagan bo'lsa
   if (!isAudioReady()) {
     handleAudioStart();
   }
 });
 
-// Faol torlar soni tugmalari (4, 6, 8)
-const pillBtns = document.querySelectorAll(".pill-btn");
-function updateVisibleNoteSlots(activeCount) {
-  noteSlots.forEach((slot, idx) => {
-    if (idx < activeCount) {
-      slot.style.display = "flex";
-    } else {
-      slot.style.display = "none";
-    }
-  });
-}
+// Sichqoncha bilan ham sinash imkoniyati (Desktop qulayligi)
+let isMouseDown = false;
+let prevMousePos = null;
 
-pillBtns.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    pillBtns.forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    const count = parseInt(btn.dataset.count, 10);
-    stringManager.setActiveStringsCount(count);
-    updateVisibleNoteSlots(count);
-  });
+canvas.addEventListener("mousedown", (e) => {
+  isMouseDown = true;
+  const rect = canvas.getBoundingClientRect();
+  const mousePos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  prevMousePos = mousePos;
+  stringManager.handlePinch(mousePos);
+
+  if (!isAudioReady()) {
+    handleAudioStart();
+  }
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mousePos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+  if (isMouseDown) {
+    stringManager.handlePinch(mousePos);
+  } else {
+    stringManager.checkHoverEndpoint(mousePos);
+    if (prevMousePos) {
+      stringManager.checkPluck(prevMousePos, mousePos, performance.now());
+    }
+  }
+  prevMousePos = mousePos;
+});
+
+canvas.addEventListener("mouseup", () => {
+  if (isMouseDown) {
+    stringManager.finishDrawing();
+    stringManager.editingEndpoint = null;
+    isMouseDown = false;
+  }
 });
 
 // Nota slotini vizual yoritish (Glow effekti)
