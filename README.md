@@ -2,7 +2,7 @@
 
 Veb-kamera orqali qo‘l harakatlarini real vaqtda aniqlab, havoda virtual torlar chizish, uzunligini o‘zgartirish va chertish orqali ovoz chiqaruvchi interaktiv veb-dastur. macOS, Windows va Linux’dagi zamonaviy brauzerlarda ishlaydi.
 
-## 🚀 Ishga tushirish
+## 🚀 Kerakli dasturni o'rnatish
 
 1. **Talablar (Node.js va npm):** Kompyuteringizda Node.js o‘rnatilgan bo‘lishi kerak (`node -v` va `npm -v` bilan tekshiring). Agar o‘rnatilmagan bo‘lsa:
    * **macOS:** `brew install node` (yoki `nodejs.org` saytidan LTS versiyani yuklab o‘rnating).
@@ -15,7 +15,7 @@ Veb-kamera orqali qo‘l harakatlarini real vaqtda aniqlab, havoda virtual torla
 
 ## 🚀 Ishga tushirish
 
-3. 
+3. Papkani teminalda ochib, npm ni ishga tushiring:
 ```bash
 npm run dev
 ```
