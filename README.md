@@ -1,20 +1,30 @@
-# Air Strings — Virtual Musiqiy Dastur (1-Bosqich: MVP)
+# Air Strings — Virtual Musiqiy Dastur
 
-macOS (Apple Silicon) muhitida veb-kamera orqali 2 ta qo‘l harakatlarini 21 ta nuqta bo‘yicha real vaqtda (60 FPS) aniqlovchi dastur.
+Veb-kamera orqali qo‘l harakatlarini real vaqtda aniqlab, havoda virtual torlar chizish, uzunligini o‘zgartirish va chertish orqali ovoz chiqaruvchi interaktiv veb-dastur. macOS, Windows va Linux’dagi zamonaviy brauzerlarda ishlaydi.
 
 ## 🚀 Ishga tushirish
 
-1. Lokal serverni ishga tushiring:
+1. **Talablar (Node.js va npm):** Kompyuteringizda Node.js o‘rnatilgan bo‘lishi kerak (`node -v` va `npm -v` bilan tekshiring). Agar o‘rnatilmagan bo‘lsa:
+   * **macOS:** `brew install node` (yoki `nodejs.org` saytidan LTS versiyani yuklab o‘rnating).
+   * **Windows:** `nodejs.org` saytidan LTS versiyani yuklab o‘rnating (`npm` birga o‘rnatiladi).
+   * **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install -y nodejs npm`
+
+2. **Kutubxonalarni o‘rnatish:** Loyiha papkasiga kirib, quyidagi buyruqni bering:
+   ```bash
+   npm install
+
+## 🚀 Ishga tushirish
+
+3. 
 ```bash
 npm run dev
 ```
-
-2. Brauzerda quyidagi manzilni oching:
+4. Brauzerda quyidagi manzilni oching:
 ```
 http://localhost:5173
 ```
 
-3. Brauzer kamera ruxsatini so‘raganda **"Ruxsat berish" (Allow)** tugmasini bosing.
+5. Brauzer kamera ruxsatini so‘raganda **"Ruxsat berish" (Allow)** tugmasini bosing.
 
 ---
 
