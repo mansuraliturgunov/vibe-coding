@@ -59,6 +59,7 @@ export class StringManager {
 
     this.editingEndpoint = null; // { stringId, end: 'p1' | 'p2' }
     this.hoverEndpoint = null;   // { stringId, end: 'p1' | 'p2' }
+    this.twoHandDrawing = false; // Faqat ikkala qo'l birga chimchilanganda yangi tor chizish
 
     // Oldingi freym barmoq koordinatalari
     this.prevFingers = new Map();
@@ -176,24 +177,22 @@ export class StringManager {
     const now = performance.now();
 
     if (!handsLandmarks || handsLandmarks.length === 0) {
-      // Qo'l yo'q bo'lsa, tugallanmagan chizishlarni yakunlash
-      if (this.drawingState.isDrawing) {
+      if (this.twoHandDrawing || this.drawingState.isDrawing) {
         this.finishDrawing();
       }
+      this.twoHandDrawing = false;
       this.editingEndpoint = null;
       this.hoverEndpoint = null;
       this.prevFingers.clear();
       return;
     }
 
-    // Har bir aniqlangan qo'lni tahlil qilish
+    // 1. Har bir qo'lning barmoq va chimchilash holatini hisoblash
+    const hands = [];
     for (let hIdx = 0; hIdx < handsLandmarks.length; hIdx++) {
       const lm = handsLandmarks[hIdx];
-
-      // Oyna rejimida ekrandagi koordinatalar:
       const pThumb = { x: (1 - lm[4].x) * screenW, y: lm[4].y * screenH };
       const pIndex = { x: (1 - lm[8].x) * screenW, y: lm[8].y * screenH };
-
       const pinchDist = distance(pThumb, pIndex);
       const isPinching = pinchDist < 38; // 38px dan yaqin bo'lsa chimchilash
       const pinchCenter = {
@@ -201,45 +200,103 @@ export class StringManager {
         y: (pThumb.y + pIndex.y) / 2
       };
 
-      const handKey = `hand_${hIdx}`;
-      const prevHand = this.prevFingers.get(handKey);
+      hands.push({
+        id: `hand_${hIdx}`,
+        hIdx,
+        pThumb,
+        pIndex,
+        isPinching,
+        pinchDist,
+        pinchCenter
+      });
+    }
 
-      // --- 1. CHIMCHILASH: Chizish yoki Uchini tahrirlash ---
-      if (isPinching) {
-        this.handlePinch(pinchCenter);
-      } else {
-        // Chimchilash ochildi (Release)
-        if (this.drawingState.isDrawing) {
-          this.finishDrawing();
-        }
-        if (this.editingEndpoint) {
-          this.editingEndpoint = null;
-        }
+    // 2. IKKI QO'LLI CHIMCHILASH (Two-Handed Pinch & Stretch):
+    // Yangi tor FAQAT ikkala qo'l bir vaqtda chimchilanganda yaratiladi
+    const bothPinching = hands.length >= 2 && hands[0].isPinching && hands[1].isPinching;
 
-        // Hover holatini tekshirish (uchlarga yaqinlashganda)
-        this.checkHoverEndpoint(pIndex);
+    if (bothPinching) {
+      // Ikkala qo'l chimchilagan: yangi tor chizish rejimi
+      this.editingEndpoint = null; // Uchini surish bekor qilinadi
+      this.twoHandDrawing = true;
+      this.drawingState.isDrawing = true;
 
-        // --- 2. CHERTISH: Ko'rsatkich barmoq bilan torlarni kesib o'tish ---
-        if (prevHand && !prevHand.wasPinching) {
-          this.checkPluck(prevHand.pIndex, pIndex, now);
+      // Chap va o'ng qo'l chimchilash nuqtalari orasida tor tortiladi
+      this.drawingState.startX = hands[0].pinchCenter.x;
+      this.drawingState.startY = hands[0].pinchCenter.y;
+      this.drawingState.currX = hands[1].pinchCenter.x;
+      this.drawingState.currY = hands[1].pinchCenter.y;
+    } else {
+      // Agar avval ikki qo'l bilan chizilayotgan bo'lsa va endi biri qo'yib yuborilsa
+      if (this.twoHandDrawing) {
+        this.finishDrawing();
+        this.twoHandDrawing = false;
+      }
+
+      // 3. BITTA QO'LDA CHIMCHILASH:
+      // Yangi tor chizilmaydi! Faqat mavjud tor uchlarini surish uchun ishlaydi
+      let anyPinching = false;
+      for (const hand of hands) {
+        if (hand.isPinching) {
+          anyPinching = true;
+          // Agar allaqachon uchini surayotgan bo'lsak
+          if (this.editingEndpoint) {
+            const { stringId, end } = this.editingEndpoint;
+            const str = this.strings.find(s => s.id === stringId);
+            if (str) {
+              if (end === "p1") {
+                this.updateStringEndpoints(str, hand.pinchCenter, str.p2);
+              } else {
+                this.updateStringEndpoints(str, str.p1, hand.pinchCenter);
+              }
+            }
+          } else {
+            // Yaqin atrofdagi tor uchini topish (masofa < 32px)
+            const nearest = this.findNearestEndpoint(hand.pinchCenter, 32);
+            if (nearest) {
+              this.editingEndpoint = nearest;
+            }
+            // Tor uchi topilmasa — HECH QANDAY tor chizilmaydi!
+          }
         }
       }
 
-      this.prevFingers.set(handKey, {
-        pIndex,
-        pThumb,
-        pinchCenter,
-        wasPinching: isPinching,
+      // Agar biror qo'l chimchilanmagan bo'lsa, uchini surish to'xtaydi
+      if (!anyPinching) {
+        this.editingEndpoint = null;
+      }
+
+      // 4. CHERTISH VA HOVER:
+      // Ochiq ko'rsatkich barmoq bilan torlarni kesib o'tish
+      for (const hand of hands) {
+        if (!hand.isPinching) {
+          this.checkHoverEndpoint(hand.pIndex);
+
+          const prev = this.prevFingers.get(hand.id);
+          if (prev && !prev.wasPinching) {
+            this.checkPluck(prev.pIndex, hand.pIndex, now);
+          }
+        }
+      }
+    }
+
+    // Holatlarni saqlash
+    for (const hand of hands) {
+      this.prevFingers.set(hand.id, {
+        pIndex: hand.pIndex,
+        pThumb: hand.pThumb,
+        pinchCenter: hand.pinchCenter,
+        wasPinching: hand.isPinching,
         time: now
       });
     }
   }
 
   /**
-   * Chimchilash harakati (Chizish yoki uchini surish)
+   * Sichqoncha orqali chimchilashni boshqarish (Desktop qulayligi)
    */
   handlePinch(point) {
-    // 1. Agar allaqachon biror uchini surayotgan bo'lsak
+    // Agar tor uchini bosgan bo'lsa — surish
     if (this.editingEndpoint) {
       const { stringId, end } = this.editingEndpoint;
       const str = this.strings.find(s => s.id === stringId);
@@ -253,25 +310,18 @@ export class StringManager {
       return;
     }
 
-    // 2. Agar yangi tor chizilayotgan bo'lsa
-    if (this.drawingState.isDrawing) {
-      this.drawingState.currX = point.x;
-      this.drawingState.currY = point.y;
-      return;
-    }
-
-    // 3. Yangi chimchilash boshlandi:
-    // Avval yaqin orada torning uchi bormi tekshiramiz (Endpoint Drag)
     const nearest = this.findNearestEndpoint(point, 32);
     if (nearest) {
       this.editingEndpoint = nearest;
       return;
     }
 
-    // Bo'sh joyda chimchilansa -> Yangi tor chizish boshlanadi
-    this.drawingState.isDrawing = true;
-    this.drawingState.startX = point.x;
-    this.drawingState.startY = point.y;
+    // Sichqonchada bitta kursor bo'lgani uchun drag qilib chizish mumkin
+    if (!this.drawingState.isDrawing) {
+      this.drawingState.isDrawing = true;
+      this.drawingState.startX = point.x;
+      this.drawingState.startY = point.y;
+    }
     this.drawingState.currX = point.x;
     this.drawingState.currY = point.y;
   }
@@ -422,12 +472,12 @@ export class StringManager {
     const ny = dx / len;
 
     // Tor rangi
-    let strokeColor = "rgba(56, 189, 248, 0.55)";
-    let lineWidth = 2.2;
+    let strokeColor = "rgba(56, 189, 248, 0.6)";
+    let lineWidth = 2.6; // 15% qalinroq (aniq ko'rinishi uchun)
 
     if (glowTimer > 0.05) {
-      strokeColor = "#00ffcc"; // Yangi chertilganda och yashil
-      lineWidth = 3.0;
+      strokeColor = "#00ffcc"; // Yangi chertilganda yorqinroq yashil
+      lineWidth = 3.5;
     }
 
     ctx.strokeStyle = strokeColor;
@@ -470,7 +520,7 @@ export class StringManager {
     const isEditing = this.editingEndpoint && this.editingEndpoint.stringId === stringId && this.editingEndpoint.end === end;
 
     ctx.beginPath();
-    const radius = isEditing ? 6.5 : isHover ? 5.5 : 3.5;
+    const radius = isEditing ? 7.5 : isHover ? 6.5 : 4.2;
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
 
     if (isEditing) {
@@ -478,14 +528,14 @@ export class StringManager {
     } else if (isHover) {
       ctx.fillStyle = "#38bdf8"; // Barmoq yaqinlashganda och moviy
     } else {
-      ctx.fillStyle = "rgba(56, 189, 248, 0.7)";
+      ctx.fillStyle = "rgba(56, 189, 248, 0.75)";
     }
     ctx.fill();
 
     // Ichki oq yadro
     if (isHover || isEditing) {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 1.8, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
       ctx.fillStyle = "#ffffff";
       ctx.fill();
     }
@@ -501,9 +551,9 @@ export class StringManager {
     const note = freqToNote(freq);
 
     ctx.save();
-    // Chizilayotgan tor: sariq chiziq
+    // Chizilayotgan tor: sariq chiziq (15% qalinroq)
     ctx.strokeStyle = "#fbbf24";
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.6;
     ctx.setLineDash([6, 4]);
 
     ctx.beginPath();
@@ -514,8 +564,8 @@ export class StringManager {
     // Uchlaridagi nuqtalar
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.arc(startX, startY, 4, 0, Math.PI * 2);
-    ctx.arc(currX, currY, 5, 0, Math.PI * 2);
+    ctx.arc(startX, startY, 5, 0, Math.PI * 2);
+    ctx.arc(currX, currY, 6, 0, Math.PI * 2);
     ctx.fillStyle = "#fbbf24";
     ctx.fill();
 
